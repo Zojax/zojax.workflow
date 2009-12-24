@@ -1,0 +1,152 @@
+==============
+zojax workflow
+==============
+
+  >>> from zope import interface, component
+  >>> from zope.interface.verify import verifyClass, verifyObject
+  >>> from zope.annotation.interfaces import IAttributeAnnotatable
+  >>> from zojax.workflow import state, workflow, transition, interfaces
+
+We need object
+
+  >>> class Content(object):
+  ...     interface.implements(
+  ...         interfaces.IWorkflowAware, IAttributeAnnotatable)
+
+  >>> content = Content()
+
+
+Workflow state
+--------------
+
+  >>> verifyClass(interfaces.IState, state.State)
+  True
+
+  >>> stateVisible = state.State('visible', 'Visible')
+  >>> str(stateVisible)
+  'Visible'
+
+  >>> verifyObject(interfaces.IState, stateVisible)
+  True
+
+We can use permissions map for state
+
+  >>> from zojax.permissionsmap.interfaces import IPermissionsMap
+  >>> from zojax.permissionsmap.permissionsmap import PermissionsMap
+  >>> visiblePermissions = PermissionsMap(
+  ...     'visiblePermissions', 'Visible permissions')
+  >>> component.provideUtility(
+  ...     visiblePermissions, IPermissionsMap, name='visiblePermissions')
+  >>> privatePermissions = PermissionsMap(
+  ...     'privatePermissions', 'Private permissions')
+  >>> component.provideUtility(
+  ...     privatePermissions, IPermissionsMap, name='privatePermissions')
+
+  >>> stateVisible = state.State(
+  ...     'visible', 'Visible', permissionsmap='visiblePermissions')
+
+  >>> statePrivate = state.State(
+  ...     'private', 'Private', permissionsmap='privatePermissions')
+  >>> statePrivate.id
+  'private'
+  >>> statePrivate.title
+  'Private'
+  >>> statePrivate.permissionsmap
+  'privatePermissions'
+
+
+Transitions
+-----------
+
+  >>> verifyClass(interfaces.ITransition, transition.Transition)
+  True
+
+  >>> transInit = transition.AutomaticTransition(
+  ...     'init', 'Init workflow', (state.NullState,), stateVisible)
+
+  >>> verifyObject(interfaces.ITransition, transInit)
+  True
+
+  >>> transVisible = transition.ManualTransition(
+  ...     'visible', 'Visible', (statePrivate,), 
+  ...     stateVisible, permission="zojax.folder.Visible")
+
+  >>> transPrivate = transition.ManualTransition(
+  ...     'private', 'Private', (stateVisible,),
+  ...     statePrivate, permission="zojax.folder.Visible")
+
+
+Workflow
+--------
+
+  >>> wf = workflow.Workflow(
+  ...     'default', 'Default Folder Workflow',
+  ...     [transInit, transVisible, transPrivate])
+
+
+  >>> wf.getState('visible').id == 'visible'
+  True
+  
+  >>> wf.getStates()
+  [<zojax.workflow.state.State...>, <zojax.workflow.state.State...>]
+
+  >>> wf.getTransition('visible', 'private') is transPrivate
+  True
+
+  >>> wf.getTransition('private', 'private')
+  Traceback (most recent call last):
+  ...
+  InvalidTransitionError
+
+
+Initialize workflow for content object
+
+  >>> workflow.initWorkflow(content)
+  Traceback (most recent call last):
+  ...
+  NoWorkflowAvailableError
+
+We should provide IWorkflow adapter for content
+
+  >>> def getWorkflow(content):
+  ...     return wf
+
+  >>> component.provideAdapter(getWorkflow, (Content,), interfaces.IWorkflow)
+  >>> workflow.initWorkflow(content)
+
+
+All automatic transitions should be fired
+
+  >>> wfState = interfaces.IWorkflowState(content)
+
+  >>> str(wfState.getState())
+  'Visible'
+
+  >>> wfState.time('visible')
+  datetime.datetime(...)
+
+  >>> wfState.history()
+  [{'comment': u'', 'state': 'visible', 'actor': (), 'time': datetime.datetime(...)}]
+
+
+Info
+----
+
+  >>> wfInfo = interfaces.IWorkflowInfo(content)
+
+  >>> [t.id for t in wfInfo.getTransitions()]
+  ['private']
+
+  >>> wfInfo.getAutomaticTransitions()
+  []
+
+  >>> wfInfo.fireTransition('private')
+
+  >>> wfState = interfaces.IWorkflowState(content)
+  >>> str(wfState.getState())
+  'Private'
+
+  >>> from zope.securitypolicy.interfaces import IRolePermissionMap
+  >>> component.getAdapter(
+  ...     content, IRolePermissionMap, 'workflow.state.permissions')
+  PermissionsMap('privatePermissions')
