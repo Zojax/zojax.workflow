@@ -1,0 +1,26 @@
+<configure
+   xmlns="http://namespaces.zope.org/zope">
+
+  <class class=".workflow.Workflow">
+    <require
+       interface=".interfaces.IWorkflow"
+       permission="zope.Public" />
+  </class>
+
+  <class class=".state.State">
+    <require
+       permission="zope.Public"
+       interface=".interfaces.IState" />
+  </class>
+
+  <adapter factory=".state.WorkflowState" />
+
+  <adapter
+     name="workflow.state.permissions"
+     factory=".state.contentPermissionsMap" />
+
+  <adapter factory=".info.WorkflowInfo" />
+
+  <subscriber handler=".workflow.initWorkflow" />
+
+</configure>
